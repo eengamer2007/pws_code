@@ -9,7 +9,7 @@ const DIV: u32 = 2;
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
-    match StreamReader::<File>::from_file("/home/tdjong/Downloads/nicotine/witch_doctor.flac") {
+    match StreamReader::<File>::from_file("./in/witch_doctor.flac") {
         Ok(mut stream) => {
             // get stream info
             let info = stream.info();
