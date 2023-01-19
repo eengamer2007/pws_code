@@ -6,14 +6,17 @@ use std::fs::File;
 use std::io::Write;
 use std::time::Instant;
 
+//use job-sys;
+
 mod fft;
+use fft::interpolate;
 
-const DIV: u32 = 1;
-
+// function that i do not remember why it exist but it breaks when removed
 fn flush() {
     std::io::stdout().flush().unwrap();
 }
 
+// function used to save graphs
 fn save_graph(plot1: &[f64], plot2: &[f64], fname: &str, title: &str) -> Result<(), Box<dyn std::error::Error>> {
     // make the drawing area
     let root = SVGBackend::new(fname, ((plot1.len() + 40) as u32, 500)).into_drawing_area();
@@ -34,7 +37,7 @@ fn save_graph(plot1: &[f64], plot2: &[f64], fname: &str, title: &str) -> Result<
         };
     }
 
-    println!("min: {min}, max: {max}");
+    println!(" min: {min}, max: {max}");
 
     // set the margin, label size and make the grid and obtain grid
     let mut chart1 = ChartBuilder::on(&upper)
@@ -83,54 +86,57 @@ fn save_graph(plot1: &[f64], plot2: &[f64], fname: &str, title: &str) -> Result<
     Ok(())
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 12)]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start = Instant::now();
     
+    let size = 2usize.pow(14);
+
     let r_min = 0;
-    let r_max = 2usize.pow(13);
+    let r_max = r_min + size;
 
     let range = r_min..r_max;
-    match StreamReader::<File>::from_file("in/witch_doctor.flac") {
+
+    // collect data from song
+    let (data, sample_rate): (Vec<f64>, u32) = match StreamReader::<File>::from_file("in/witch_doctor.flac") {
         Ok(mut stream) => {
             // get stream info
             let info = stream.info();
             println!("{info:?}");
             print!("make vec");
             flush();
-            // iterate over all samples
-            //for sample in stream.iter::<i16>() {
-            //    data.push(sample as f64 / std::i16::MAX as f64);
-            //}
-            /*
-            let data: Vec<f64> = stream
+            
+            let data = stream
                 .iter::<i16>()
                 .map(|x| x as f64 / std::i16::MAX as f64)
                 .collect();
-            */
-            let data: Vec<f64> = (0..r_max).map(|x| sin(x, r_max, 10) + sin(x, r_max, 50)).collect();
-            println!(": {:?}", start.elapsed());
-            print!("fft");
-            flush();
-            let fft_res = fft::fft(&data[range.clone()]).await;
-            println!(": {:?}", start.elapsed());
-            //println!("{fft_res:#?}");
-            print!("save plot");
-            flush();
-            let amp = fft_res.iter().map(|x| x.abs() as f64).collect::<Vec<f64>>();
-            save_graph(&amp, &data[range], "./out/fourier.svg", &format!("{}: {:?}", r_max - r_min, (r_max - r_min) as f64 / info.sample_rate as f64))?;
-            println!(": {:?}", start.elapsed());
 
-            for (i, x) in amp.iter().enumerate() {
-                println!("{i:04} : {x}");
-            }
+            (data, info.sample_rate)
         }
         Err(error) => panic!("{error:?}"),
     };
+
+    println!(": {:?}", start.elapsed());
+    print!("fft");
+    flush();
+    let used_data = interpolate(&data[r_min..(size/2)]);
+    println!(" {}", used_data.len());
+    let mut fft_res = fft::fft(&used_data);
+    
+    // remove the DC component from the music
+    fft_res[0] = num::Complex::new(0.,0.);
+
+    println!(": {:?}", start.elapsed());
+    print!("save plot");
+    flush();
+    let amp = fft_res.iter().map(|x| x.abs() as f64).collect::<Vec<f64>>();
+    save_graph(
+        &(amp[0..(size/2)]), &used_data,
+        "./out/fourier.svg", &format!("{}: {:?}", r_max - r_min, (r_max - r_min) as f64 / sample_rate as f64)
+    )?;
+    println!(": {:?}", start.elapsed());
+
+    for (i, x) in amp[0..(size/2)].iter().enumerate() {
+        println!("{i:04} : {x:.1}");
+    }
     Ok(())
-}
-
-
-fn sin(x: usize, max: usize, freq: usize) -> f64 {
-    ((x as f64 / max as f64) * std::f64::consts::TAU * freq as f64).sin()
 }
